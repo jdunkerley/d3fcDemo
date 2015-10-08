@@ -2,28 +2,7 @@
 	'use strict';
 
 	// ToDo: Navigation Panel
-	// ToDo: Joined Cross Hairs Need to Pick correct Y for each point
-	
-	function joinCrossHairs(panels) {
-		var crosshairData;
-		var renderFn = function() { render(panels); };
-		
-		for (var panelIdx = 0; panelIdx < panels.length; panelIdx++) {
-			var panel = panels[panelIdx];
-			if (!panels[panelIdx].crosshairs) {
-				continue;
-			}			
-			
-			if (!crosshairData) {
-				crosshairData = panel.crosshairsData;
-			}
-			
-			panel.crosshairsData = crosshairData;		
-			panel.crosshairs.on('trackingstart.link', renderFn);
-			panel.crosshairs.on('trackingmove.link', renderFn);
-			panel.crosshairs.on('trackingend.link', renderFn);
-		}
-	}
+	// ToDo: DateTime Axis	
 
 	function createPanelObject(svgPanel) {
 		var panelObject = {};
@@ -42,11 +21,6 @@
 			panelObject.chart
 				.xDomain(dateDomain)
 				.yDomain(yDomain);
-					
-			if (panelObject.crosshairs) {
-				panelObject.crosshairs
-					.snap(fc.util.seriesPointSnap(panelObject.series, data));
-			}
 							
 			panelObject.panel
 				.datum(data)
@@ -70,7 +44,70 @@
 			});
 		return panelObject.crosshairs;
 	}
+	
+	function connectCrossHairs(panels) {
+		var renderFn = function() { render(panels); };
 
+		for (var idx = 0; idx < panels.length; idx++) {
+			var crosshairs = panels[idx].crosshairs;
+			if (!crosshairs) {
+				continue;
+			}
+			
+			crosshairs
+				.snap(unifiedSnapFunction(panels[idx], panels))
+				.on('trackingstart.link', renderFn)
+				.on('trackingmove.link', renderFn)
+				.on('trackingend.link', function() { trackingEnd(panels); });			
+		}
+	}
+	
+	function trackingEnd(panels) {
+		for (var idx = 0; idx < panels.length; idx++) {
+			if (!panels[idx].crosshairs) {
+				continue;
+			}
+			
+			panels[idx].crosshairsData.pop();
+		}
+			
+		render(panels);
+	}
+	
+	function unifiedSnapFunction(chartObject, panels) {
+		return function(xPixel, yPixel) {
+			var match = fc.util.pointSnap(
+				chartObject.series.xScale(),
+				chartObject.series.yScale(),
+				chartObject.series.xValue(),
+				chartObject.series.yValue(),
+				panels.data,
+				function(x,y,cx,cy) { return Math.abs(cx - x); })(xPixel, yPixel);
+				
+			for (var idx = 0; idx < panels.length; idx++) {
+				if (panels[idx] === chartObject) {
+					continue;
+				}
+				
+				if (!panels[idx].crosshairs) {
+					continue;
+				}				
+				
+				var newMatch = {
+					datum: match.datum,
+					x: match.datum ? panels[idx].series.xValue()(match.datum) : match.x,
+					xInDomainUnits: match.xInDomainUnits,
+					y: match.datum ? panels[idx].series.yValue()(match.datum) : match.y,
+					yInDomainUnits: match.yInDomainUnits
+				};
+				
+				panels[idx].crosshairsData[0] = newMatch;
+			}			
+			
+			return match;
+		} 
+	}
+	
 	function mainChartCreate(svgPanel) { 				
 		var panelObject = createPanelObject(svgPanel);
 		var dataFn = function() { return panelObject.panel.datum(); };
@@ -89,7 +126,7 @@
 		series.push(panelObject.series);
 		panelObject.getYDomain = function(data) { return fc.util.extent(data, ['High', 'Low']); };
 		
-		series.push(addCrossHairs(panelObject, dataFn));		
+		series.push(addCrossHairs(panelObject, dataFn));
 			
 		return panelObject;
 	}
@@ -157,7 +194,7 @@
 				];
 							
 				// Connect CrossHairs
-				joinCrossHairs(panels);
+				connectCrossHairs(panels);
 
 				// Connect Zooms
 									
