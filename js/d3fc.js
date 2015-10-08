@@ -4115,7 +4115,7 @@
 
         var _columnNameMap = function(colName) {
             colName = colName.replace(/[\s()-.]/g, '');
-            return colName.substr(0, 1) + colName.substr(1);
+            return colName.substr(0, 1).toLowerCase() + colName.substr(1);
         };
 
         var database = 'YAHOO',
@@ -4159,17 +4159,16 @@
                     return;
                 }
 
-                var colNames = data.columnNames.map(function(c) {
-                    return [c, columnNameMap(c)];
-                });
+                data = data.dataset_data;
+                var colNames = data.column_names.map(columnNameMap);
 
                 data = data.data.map(function(d) {
                     var output = {};
 
-                    output[colNames[0][1]] = new Date(d[colNames[0][0]]);
+                    output[colNames[0]] = new Date(d[0]);
                     for (var i = 1; i < colNames.length; i++) {
-                        if (colNames[i][1] != null) {
-                            output[colNames[i][1]] = new Date(d[colNames[i][0]]);
+                        if (colNames[i] != null) {
+                            output[colNames[i]] = d[i];
                         }
                     }
 
