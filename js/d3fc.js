@@ -191,17 +191,17 @@
         };
     }
 
-    function pointSnap(xScale, yScale, xValue, yValue, data, pointDistance) {
+    function pointSnap(xScale, yScale, xValue, yValue, data, objectiveFunction) {
         // a default function that computes the distance between two points
-        pointDistance = pointDistance || function(x, y, cx, cy) {
+        objectiveFunction = objectiveFunction || function(x, y, cx, cy) {
             var dx = x - cx,
                 dy = y - cy;
-            return Math.sqrt(dx * dx + dy * dy);
+            return dx * dx + dy * dy;
         };
 
         return function(xPixel, yPixel) {
             var nearest = data.map(function(d) {
-                var diff = pointDistance(xPixel, yPixel, xScale(xValue(d)), yScale(yValue(d)));
+                var diff = objectiveFunction(xPixel, yPixel, xScale(xValue(d)), yScale(yValue(d)));
                 return [diff, d];
             })
             .reduce(function(accumulator, value) {
@@ -218,30 +218,30 @@
         };
     }
 
-    function seriesPointSnap(series, data, pointDistance) {
+    function seriesPointSnap(series, data, objectiveFunction) {
         return function(xPixel, yPixel) {
             var xScale = series.xScale(),
                 yScale = series.yScale(),
                 xValue = series.xValue(),
                 yValue = (series.yValue || series.yCloseValue).call(series);
-            return pointSnap(xScale, yScale, xValue, yValue, data, pointDistance)(xPixel, yPixel);
+            return pointSnap(xScale, yScale, xValue, yValue, data, objectiveFunction)(xPixel, yPixel);
         };
     }
 
     function seriesPointSnapXOnly(series, data) {
-        function pointDistance(x, y, cx, cy) {
+        function objectiveFunction(x, y, cx, cy) {
             var dx = x - cx;
             return Math.abs(dx);
         }
-        return seriesPointSnap(series, data, pointDistance);
+        return seriesPointSnap(series, data, objectiveFunction);
     }
 
     function seriesPointSnapYOnly(series, data) {
-        function pointDistance(x, y, cx, cy) {
+        function objectiveFunction(x, y, cx, cy) {
             var dy = y - cy;
             return Math.abs(dy);
         }
-        return seriesPointSnap(series, data, pointDistance);
+        return seriesPointSnap(series, data, objectiveFunction);
     }
 
     function isOrdinal(scale) {
@@ -4113,10 +4113,9 @@
     //  https://www.quandl.com/docs/api#datasets
     function quandl() {
 
-        var _columnNameMap = function(colName) {
-            colName = colName.replace(/[\s()-.]/g, '');
-            return colName.substr(0, 1).toLowerCase() + colName.substr(1);
-        };
+        function defaultColumnNameMap(colName) {
+            return colName[0].toLowerCase() + colName.substr(1);
+        }
 
         var database = 'YAHOO',
             dataset = 'GOOG',
@@ -4126,7 +4125,7 @@
             rows = null,
             descending = false,
             collapse = null,
-            columnNameMap = _columnNameMap;
+            columnNameMap = defaultColumnNameMap;
 
         var quandl = function(cb) {
             var params = [];
@@ -4149,9 +4148,7 @@
                 params.push('collapse=' + collapse);
             }
 
-            var url = 'https://www.quandl.com/api/v3/datasets';
-            url += ('/' + database + '/' + dataset + '/').replace(/\/\//g, '');
-            url += 'data.json?' + params.join('&');
+            var url = 'https://www.quandl.com/api/v3/datasets/' + database + '/' + dataset + '/data.json?' + params.join('&');
 
             d3.json(url, function(error, data) {
                 if (error) {
@@ -4159,23 +4156,22 @@
                     return;
                 }
 
-                data = data.dataset_data;
-                var colNames = data.column_names.map(columnNameMap);
+                var datasetData = data.dataset_data;
 
-                data = data.data.map(function(d) {
+                var nameMapping = columnNameMap || function(n) { return n; };
+                var colNames = datasetData.column_names
+                    .map(function(n, i) { return [i, nameMapping(n)]; })
+                    .filter(function(v) { return v[1]; });
+
+                var mappedData = datasetData.data.map(function(d) {
                     var output = {};
-
-                    output[colNames[0]] = new Date(d[0]);
-                    for (var i = 1; i < colNames.length; i++) {
-                        if (colNames[i] != null) {
-                            output[colNames[i]] = d[i];
-                        }
-                    }
-
+                    colNames.forEach(function(v) {
+                        output[v[1]] = v[0] === 0 ? new Date(d[v[0]]) : d[v[0]];
+                    });
                     return output;
                 });
 
-                cb(error, data);
+                cb(error, mappedData);
             });
         };
 
@@ -4248,9 +4244,11 @@
             if (!arguments.length) {
                 return columnNameMap;
             }
-            columnNameMap = x || _columnNameMap;
+            columnNameMap = x;
             return quandl;
         };
+        // Expose default column name map
+        quandl.defaultColumnNameMap = defaultColumnNameMap;
 
         return quandl;
     }

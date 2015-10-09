@@ -34,7 +34,7 @@
             }
 
             _this.data = result.map(function(d) {
-              var scale = d.adjustedClose / d.close;
+              var scale = d['adjusted Close'] / d.close;
 
               var output = {};
               for (var key in d) {
@@ -42,7 +42,7 @@
                   case 'date':
                     output.date = d.date;
                     break;
-                  case 'adjustedClose':
+                  case 'adjusted Close':
                     break;
                   default:
                     output[key] = d[key] * scale;
