@@ -2,8 +2,7 @@
 (function () {
     'use strict';
 
-    // ToDo: Navigation Panel
-    // ToDo: DateTime Axis
+    // ToDo: Add rect to navigator panel
 
     function createPanelObject(svgPanel) {
         var panelObject = {};
@@ -11,17 +10,25 @@
         panelObject.multi = fc.series.multi();
 
         panelObject.chart = fc.chart.linearTimeSeries()
+            .xDiscontinuityProvider(fc.scale.discontinuity.skipWeekends())
             .yNice().yTicks(4)
             .plotArea(panelObject.multi);
 
         panelObject.getYDomain = function (data) { return [0, 1]; };
 
-        panelObject.dataSet = function (data, dateDomain) {
-            var yDomain = panelObject.getYDomain(data);
+        panelObject.dataSet = function (data, dateDomain, fullDomain) {
+            var yDomain = panelObject.getYDomain(
+                panelObject.navigator ? data : data.filter(function(d) {
+                    return d.date >= dateDomain[0] && d.date <= dateDomain[1];
+                }));
 
             panelObject.chart
-                .xDomain(dateDomain)
+                .xDomain(panelObject.navigator ? fullDomain : dateDomain)
                 .yDomain(yDomain);
+
+            if (panelObject.zoom) {
+                panelObject.zoom.x(panelObject.chart.xScale());
+            }
 
             panelObject.panel
                 .datum(data)
@@ -40,6 +47,9 @@
         panelObject.multi.mapping(function (series) {
             if (series === panelObject.crosshairs) {
                 return panelObject.crosshairsData;
+            }
+            if (series === panelObject.brush) {
+                return panelObject.brushData;
             }
             return dataFn();
         });
@@ -134,10 +144,12 @@
         return panelObject;
     }
 
-    function lineChartPanel(svgPanel, property) {
+    function zoomChartPanel(svgPanel, property) {
         var panelObject = createPanelObject(svgPanel);
         var dataFn = function () { return panelObject.panel.datum(); };
         var series = panelObject.multi.series();
+
+        panelObject.navigator = true;
 
         panelObject.chart.yTicks(0);
         series.push(fc.annotation.gridline().yTicks(0));
@@ -156,10 +168,28 @@
             addCrossHairs(panelObject, dataFn)
                 .decorate(function(s) {
                     s.selectAll('.annotation line')
-                        .attr('style', 'stroke:none');
+                        .attr('style', 'stroke:none'); // Stops lines being render
+                    s.selectAll('circle')
+                        .attr('style', function(d) { return d.datum.close < d.datum.open ? 'fill:red' : 'fill:green'; });
                 }));
 
+
+
         return panelObject;
+    }
+
+    function connectZooms(panels) {
+        panels.filter(function(p) { return !p.navigator; })
+            .forEach(function(p) {
+                p.zoom = d3.behavior.zoom()
+                    .on('zoom', function() {
+                        panels.dateDomain[0] = p.chart.xDomain()[0];
+                        panels.dateDomain[1] = p.chart.xDomain()[1];
+                        render();
+                    });
+
+                p.panel.call(p.zoom);
+            });
     }
 
     function createPanelSVG(container, width, height) {
@@ -172,14 +202,33 @@
     }
 
     function render(panels) {
-        panels.forEach(function(p) {
-            p.dataSet(panels.data, panels.dateDomain);
-        });
+        if (panels) {
+            panels.forEach(function(p) {
+                p.dataSet(panels.data, panels.dateDomain, panels.fullDomain);
+            });
+        }
     }
 
     function setData(panels, data) {
         panels.data = data;
-        panels.dateDomain = fc.util.extent(data, 'date');
+        panels.fullDomain = fc.util.extent(data, 'date');
+
+        if (panels.fullDomain && panels.fullDomain[1]) {
+            if (!panels.dateDomain) {
+                // Default to 3 Months
+                var max = panels.fullDomain[1];
+                panels.dateDomain = [new Date(max.getFullYear(), max.getMonth() - 3, max.getDay()), max];
+            }
+
+            if (panels.dateDomain[0] < panels.fullDomain[0]) {
+                panels.dateDomain[0] = panels.fullDomain[0];
+            }
+
+            if (panels.dateDomain[1] > panels.fullDomain[1]) {
+                panels.dateDomain[1] = panels.fullDomain[1];
+            }
+        }
+
         render(panels);
     }
 
@@ -199,12 +248,13 @@
                     var panels = [];
                     panels.push(mainChartCreate(createPanelSVG(container, width, height * 0.7)));
                     panels.push(barChartPanel(createPanelSVG(container, width, height * 0.2), 'volume'));
-                    panels.push(lineChartPanel(createPanelSVG(container, width, height * 0.1), 'close'));
+                    panels.push(zoomChartPanel(createPanelSVG(container, width, height * 0.1), 'close'));
 
                     // Connect CrossHairs
                     connectCrossHairs(panels);
 
                     // Connect Zooms
+                    connectZooms(panels);
 
                     // This will be called on data set
                     scope.render = function (data) {

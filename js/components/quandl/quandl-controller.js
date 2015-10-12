@@ -39,14 +39,16 @@
 
                             var output = {};
                             for (var key in d) {
-                                switch (key) {
-                                case 'date':
-                                    output.date = d.date;
-                                    break;
-                                case 'adjusted Close':
-                                    break;
-                                default:
-                                    output[key] = d[key] * scale;
+                                if (d.hasOwnProperty(key)) {
+                                    switch (key) {
+                                    case 'date':
+                                        output.date = d.date;
+                                        break;
+                                    case 'adjusted Close':
+                                        break;
+                                    default:
+                                        output[key] = d[key] * scale;
+                                    }
                                 }
                             }
 
