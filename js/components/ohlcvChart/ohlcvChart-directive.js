@@ -1,4 +1,4 @@
-/* global angular, fc */
+/* global angular, fc, d3 */
 (function () {
     'use strict';
 
@@ -48,7 +48,7 @@
 
     function connectCrossHairs(panels) {
         var renderFn = function () { render(panels); };
-        var trackingEnd = function () { trackingEnd(panels); };
+        var trackingEndFn = function () { trackingEnd(panels); };
 
         for (var idx = 0; idx < panels.length; idx++) {
             var crosshairs = panels[idx].crosshairs;
@@ -57,55 +57,40 @@
                     .snap(unifiedSnapFunction(panels[idx], panels))
                     .on('trackingstart.link', renderFn)
                     .on('trackingmove.link', renderFn)
-                    .on('trackingend.link', trackingEnd);
+                    .on('trackingend.link', trackingEndFn);
             }
         }
     }
 
     function trackingEnd(panels) {
-        for (var idx = 0; idx < panels.length; idx++) {
-            if (!panels[idx].crosshairs) {
-                continue;
-            }
-
-            panels[idx].crosshairsData.pop();
-        }
-
+        panels
+            .filter(function(p) { return p.crosshairsData; })
+            .forEach(function(p) { p.crosshairsData.pop(); });
         render(panels);
     }
 
     function unifiedSnapFunction(chartObject, panels) {
         return function (xPixel, yPixel) {
-            var match = fc.util.pointSnap(
-                chartObject.series.xScale(),
-                chartObject.series.yScale(),
-                chartObject.series.xValue(),
-                chartObject.series.yValue(),
-                panels.data,
-                function (x, y, cx, cy) { return Math.abs(cx - x); })(xPixel, yPixel);
+            var match = fc.util.seriesPointSnapXOnly(
+                chartObject.series,
+                panels.data)(xPixel, yPixel);
 
-            for (var idx = 0; idx < panels.length; idx++) {
-                if (panels[idx] === chartObject) {
-                    continue;
-                }
+            panels
+                .filter(function(p) { return p !== chartObject && p.crosshairsData; })
+                .forEach(function(p) {
+                    var newMatch = {
+                        datum: match.datum,
+                        x: match.datum ? p.series.xValue()(match.datum) : match.x,
+                        xInDomainUnits: match.xInDomainUnits,
+                        y: match.datum ? p.series.yValue()(match.datum) : match.y,
+                        yInDomainUnits: match.yInDomainUnits
+                    };
 
-                if (!panels[idx].crosshairs) {
-                    continue;
-                }
-
-                var newMatch = {
-                    datum: match.datum,
-                    x: match.datum ? panels[idx].series.xValue()(match.datum) : match.x,
-                    xInDomainUnits: match.xInDomainUnits,
-                    y: match.datum ? panels[idx].series.yValue()(match.datum) : match.y,
-                    yInDomainUnits: match.yInDomainUnits
-                };
-
-                panels[idx].crosshairsData[0] = newMatch;
-            }
+                    p.crosshairsData[0] = newMatch;
+                });
 
             return match;
-        }
+        };
     }
 
     function mainChartCreate(svgPanel) {
@@ -114,33 +99,65 @@
         var series = panelObject.multi.series();
 
         panelObject.chart.xTicks(0);
-
-        series.push(fc.annotation.gridline());
+        panelObject.chart.yTicks(4);
+        series.push(fc.annotation.gridline().yTicks(12));
 
         panelObject.series = fc.series.candlestick();
         series.push(panelObject.series);
         panelObject.getYDomain = function (data) { return fc.util.extent(data, ['high', 'low']); };
 
-        series.push(addCrossHairs(panelObject, dataFn));
+        series.push(
+            addCrossHairs(panelObject, dataFn)
+                .yLabel(function(d) { return d.datum ? d.datum.close : null; }));
 
         return panelObject;
     }
 
-    function volumeChartCreate(svgPanel) {
+    function barChartPanel(svgPanel, property) {
         var panelObject = createPanelObject(svgPanel);
         var dataFn = function () { return panelObject.panel.datum(); };
         var series = panelObject.multi.series();
 
         panelObject.chart.yTicks(2);
-
-        series.push(fc.annotation.gridline());
+        series.push(fc.annotation.gridline().yTicks(4));
 
         panelObject.series = fc.series.bar()
-            .yValue(function (d, i) { return d.volume; });
+            .yValue(function (d, i) { return d[property]; });
         series.push(panelObject.series);
-        panelObject.getYDomain = function (data) { return [0, d3.max(data, function (d, i) { return d.volume || 0; })]; };
 
-        series.push(addCrossHairs(panelObject, dataFn));
+        panelObject.getYDomain = function (data) { return [0, d3.max(data, function (d, i) { return d[property] || 0; })]; };
+
+        series.push(
+            addCrossHairs(panelObject, dataFn)
+                .yLabel(function(d) { return d.datum ? d.datum[property] : null; }));
+
+        return panelObject;
+    }
+
+    function lineChartPanel(svgPanel, property) {
+        var panelObject = createPanelObject(svgPanel);
+        var dataFn = function () { return panelObject.panel.datum(); };
+        var series = panelObject.multi.series();
+
+        panelObject.chart.yTicks(0);
+        series.push(fc.annotation.gridline().yTicks(0));
+
+        panelObject.series = fc.series.line()
+            .yValue(function (d, i) { return d[property]; });
+        series.push(panelObject.series);
+
+        series.push(
+            fc.series.area()
+                .yValue(function (d, i) { return d[property]; }));
+
+        panelObject.getYDomain = function (data) { return [0, d3.max(data, function (d, i) { return d[property] || 0; })]; };
+
+        series.push(
+            addCrossHairs(panelObject, dataFn)
+                .decorate(function(s) {
+                    s.selectAll('.annotation line')
+                        .attr('style', 'stroke:none');
+                }));
 
         return panelObject;
     }
@@ -155,10 +172,9 @@
     }
 
     function render(panels) {
-        for (var idx = 0; idx < panels.length; idx++) {
-            panels[idx].dataSet(panels.data, panels.dateDomain);
-        }
-
+        panels.forEach(function(p) {
+            p.dataSet(panels.data, panels.dateDomain);
+        });
     }
 
     function setData(panels, data) {
@@ -180,10 +196,10 @@
                     // Create Chart Panels
                     var width = attribs.width || 1140;
                     var height = attribs.height || 800;
-                    var panels = [
-                        mainChartCreate(createPanelSVG(container, width, height * 0.8)),
-                        volumeChartCreate(createPanelSVG(container, width, height * 0.2)),
-                    ];
+                    var panels = [];
+                    panels.push(mainChartCreate(createPanelSVG(container, width, height * 0.7)));
+                    panels.push(barChartPanel(createPanelSVG(container, width, height * 0.2), 'volume'));
+                    panels.push(lineChartPanel(createPanelSVG(container, width, height * 0.1), 'close'));
 
                     // Connect CrossHairs
                     connectCrossHairs(panels);
@@ -201,4 +217,4 @@
                 }
             };
         }]);
-} ());
+}());

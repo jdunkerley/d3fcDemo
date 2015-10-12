@@ -1,3 +1,4 @@
+/* global angular */
 (function () {
     'use strict';
 
@@ -28,7 +29,7 @@
 
                         if (result.error) {
                             self.data = [];
-                            self.statusMessage = 'Failed to get data for ' + database + '/' + dataSet + ' : ' + result.error;
+                            self.statusMessage = 'Failed to get data for ' + database + '/' + dataset + ' : ' + result.error;
                             self.state = 'alert-warning';
                             return;
                         }
@@ -39,13 +40,13 @@
                             var output = {};
                             for (var key in d) {
                                 switch (key) {
-                                    case 'date':
-                                        output.date = d.date;
-                                        break;
-                                    case 'adjusted Close':
-                                        break;
-                                    default:
-                                        output[key] = d[key] * scale;
+                                case 'date':
+                                    output.date = d.date;
+                                    break;
+                                case 'adjusted Close':
+                                    break;
+                                default:
+                                    output[key] = d[key] * scale;
                                 }
                             }
 
@@ -67,4 +68,4 @@
 
             self.datakeySet();
         }]);
-} ());
+}());
