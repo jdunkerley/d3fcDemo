@@ -48,6 +48,7 @@
 
     function connectCrossHairs(panels) {
         var renderFn = function () { render(panels); };
+        var trackingEnd = function () { trackingEnd(panels); };
 
         for (var idx = 0; idx < panels.length; idx++) {
             var crosshairs = panels[idx].crosshairs;
@@ -56,7 +57,7 @@
                     .snap(unifiedSnapFunction(panels[idx], panels))
                     .on('trackingstart.link', renderFn)
                     .on('trackingmove.link', renderFn)
-                    .on('trackingend.link', function () { trackingEnd(panels); });
+                    .on('trackingend.link', trackingEnd);
             }
         }
     }
