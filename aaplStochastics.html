@@ -1,0 +1,46 @@
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/d3fc/1.3.0/d3fc.min.css" />
+    </head>
+    <body>
+        <svg id="svg"" width="1160" height="200"></svg>
+        
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/css-layout/0.0.6/css-layout.js"></script>
+        <script src="js/d3fc.js"></script>
+        <script>
+            var feed = fc.data.feed.quandl()
+                .database('WIKI')
+                .dataset('AAPL')
+                .rows(100);
+
+            // fetch some data!
+            feed(function(error, data) {
+                var container = d3.select("#svg");
+
+                var xScale = fc.scale.dateTime()
+                    .domain(fc.util.extent(data, 'date'))
+                    .range([0, 800]);
+
+                var stochasticAlgorithm = fc.indicator.algorithm.stochasticOscillator()
+                    .kWindowSize(14);
+                stochasticAlgorithm(data);
+
+                // the stochastic oscillator is rendered on its own scale
+                var yScale = d3.scale.linear()
+                    .domain([0, 100])
+                    .range([200, 0]);
+
+                // Create the renderer
+                var stochastic = fc.indicator.renderer.stochasticOscillator()
+                    .xScale(xScale)
+                    .yScale(yScale);
+
+                // Add it to the container
+                container.append('g')
+                    .datum(data)
+                    .call(stochastic);
+            });
+        </script>
+    </body>
+</html>

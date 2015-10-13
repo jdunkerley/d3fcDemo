@@ -1,110 +1,11 @@
-/* global angular, fc, d3 */
+/* global angular, fc, d3, jdunkerleyD3fc */
 (function () {
     'use strict';
 
     // ToDo: Add rect to navigator panel
 
-    function createPanelObject(svgPanel) {
-        var panelObject = {};
-        panelObject.panel = svgPanel;
-        panelObject.multi = fc.series.multi();
-
-        panelObject.chart = fc.chart.linearTimeSeries()
-            .xDiscontinuityProvider(fc.scale.discontinuity.skipWeekends())
-            .yNice().yTicks(4)
-            .plotArea(panelObject.multi);
-
-        panelObject.getYDomain = function (data) { return [0, 1]; };
-
-        panelObject.dataSet = function (data, dateDomain, fullDomain) {
-            var yDomain = panelObject.getYDomain(
-                panelObject.navigator ? data : data.filter(function(d) {
-                    return d.date >= dateDomain[0] && d.date <= dateDomain[1];
-                }));
-
-            panelObject.chart
-                .xDomain(panelObject.navigator ? fullDomain : dateDomain)
-                .yDomain(yDomain);
-
-            if (panelObject.zoom) {
-                panelObject.zoom.x(panelObject.chart.xScale());
-            }
-
-            panelObject.panel
-                .datum(data)
-                .call(panelObject.chart);
-        };
-
-        return panelObject;
-    }
-
-    function addCrossHairs(panelObject, dataFn) {
-        panelObject.crosshairsData = [];
-        panelObject.crosshairs = fc.tool.crosshair()
-            .xLabel('')
-            .yLabel('');
-
-        panelObject.multi.mapping(function (series) {
-            if (series === panelObject.crosshairs) {
-                return panelObject.crosshairsData;
-            }
-            if (series === panelObject.brush) {
-                return panelObject.brushData;
-            }
-            return dataFn();
-        });
-        return panelObject.crosshairs;
-    }
-
-    function connectCrossHairs(panels) {
-        var renderFn = function () { render(panels); };
-        var trackingEndFn = function () { trackingEnd(panels); };
-
-        for (var idx = 0; idx < panels.length; idx++) {
-            var crosshairs = panels[idx].crosshairs;
-            if (crosshairs) {
-                crosshairs
-                    .snap(unifiedSnapFunction(panels[idx], panels))
-                    .on('trackingstart.link', renderFn)
-                    .on('trackingmove.link', renderFn)
-                    .on('trackingend.link', trackingEndFn);
-            }
-        }
-    }
-
-    function trackingEnd(panels) {
-        panels
-            .filter(function(p) { return p.crosshairsData; })
-            .forEach(function(p) { p.crosshairsData.pop(); });
-        render(panels);
-    }
-
-    function unifiedSnapFunction(chartObject, panels) {
-        return function (xPixel, yPixel) {
-            var match = fc.util.seriesPointSnapXOnly(
-                chartObject.series,
-                panels.data)(xPixel, yPixel);
-
-            panels
-                .filter(function(p) { return p !== chartObject && p.crosshairsData; })
-                .forEach(function(p) {
-                    var newMatch = {
-                        datum: match.datum,
-                        x: match.datum ? p.series.xValue()(match.datum) : match.x,
-                        xInDomainUnits: match.xInDomainUnits,
-                        y: match.datum ? p.series.yValue()(match.datum) : match.y,
-                        yInDomainUnits: match.yInDomainUnits
-                    };
-
-                    p.crosshairsData[0] = newMatch;
-                });
-
-            return match;
-        };
-    }
-
     function mainChartCreate(svgPanel) {
-        var panelObject = createPanelObject(svgPanel);
+        var panelObject = jdunkerleyD3fc.panels.addPanel(svgPanel);
         var dataFn = function () { return panelObject.panel.datum(); };
         var series = panelObject.multi.series();
 
@@ -117,14 +18,14 @@
         panelObject.getYDomain = function (data) { return fc.util.extent(data, ['high', 'low']); };
 
         series.push(
-            addCrossHairs(panelObject, dataFn)
+            jdunkerleyD3fc.crosshairs.add(panelObject, dataFn)
                 .yLabel(function(d) { return d.datum ? d.datum.close : null; }));
 
         return panelObject;
     }
 
     function barChartPanel(svgPanel, property) {
-        var panelObject = createPanelObject(svgPanel);
+        var panelObject = jdunkerleyD3fc.panels.addPanel(svgPanel);
         var dataFn = function () { return panelObject.panel.datum(); };
         var series = panelObject.multi.series();
 
@@ -138,14 +39,14 @@
         panelObject.getYDomain = function (data) { return [0, d3.max(data, function (d, i) { return d[property] || 0; })]; };
 
         series.push(
-            addCrossHairs(panelObject, dataFn)
+            jdunkerleyD3fc.crosshairs.add(panelObject, dataFn)
                 .yLabel(function(d) { return d.datum ? d.datum[property] : null; }));
 
         return panelObject;
     }
 
     function zoomChartPanel(svgPanel, property) {
-        var panelObject = createPanelObject(svgPanel);
+        var panelObject = jdunkerleyD3fc.panels.addPanel(svgPanel);
         var dataFn = function () { return panelObject.panel.datum(); };
         var series = panelObject.multi.series();
 
@@ -165,15 +66,13 @@
         panelObject.getYDomain = function (data) { return [0, d3.max(data, function (d, i) { return d[property] || 0; })]; };
 
         series.push(
-            addCrossHairs(panelObject, dataFn)
+            jdunkerleyD3fc.crosshairs.add(panelObject, dataFn)
                 .decorate(function(s) {
                     s.selectAll('.annotation line')
                         .attr('style', 'stroke:none'); // Stops lines being render
                     s.selectAll('circle')
                         .attr('style', function(d) { return d.datum.close < d.datum.open ? 'fill:red' : 'fill:green'; });
                 }));
-
-
 
         return panelObject;
     }
@@ -185,7 +84,7 @@
                     .on('zoom', function() {
                         panels.dateDomain[0] = p.chart.xDomain()[0];
                         panels.dateDomain[1] = p.chart.xDomain()[1];
-                        render();
+                        panels.render();
                     });
 
                 p.panel.call(p.zoom);
@@ -199,14 +98,6 @@
                 width: width,
                 height: height
             });
-    }
-
-    function render(panels) {
-        if (panels) {
-            panels.forEach(function(p) {
-                p.dataSet(panels.data, panels.dateDomain, panels.fullDomain);
-            });
-        }
     }
 
     function setData(panels, data) {
@@ -229,7 +120,7 @@
             }
         }
 
-        render(panels);
+        panels.render();
     }
 
     angular.module('d3Test.ohlcvChart')
@@ -245,13 +136,13 @@
                     // Create Chart Panels
                     var width = attribs.width || 1140;
                     var height = attribs.height || 800;
-                    var panels = [];
+                    var panels = jdunkerleyD3fc.panels.create();
                     panels.push(mainChartCreate(createPanelSVG(container, width, height * 0.7)));
                     panels.push(barChartPanel(createPanelSVG(container, width, height * 0.2), 'volume'));
                     panels.push(zoomChartPanel(createPanelSVG(container, width, height * 0.1), 'close'));
 
                     // Connect CrossHairs
-                    connectCrossHairs(panels);
+                    jdunkerleyD3fc.crosshairs.connect(panels);
 
                     // Connect Zooms
                     connectZooms(panels);
